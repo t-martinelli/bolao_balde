@@ -96,7 +96,7 @@
       <button data-mode="jogo" class="on">Por jogo</button>
       <button data-mode="dia">Por dia</button>
     </div>
-    <button class="btn" id="reset">Mostrar todos</button>
+    <button class="btn" id="reset">Limpar destaque</button>
     <button class="btn spacer" id="refresh">Atualizar</button>
   </div>
 
@@ -119,7 +119,7 @@
 
 <script>
 // ============================ ESTADO ============================
-let ROWS=[], PEOPLE=[], COLORS={}, MODE="jogo", SELECTED=null;
+let ROWS=[], PEOPLE=[], COLORS={}, MODE="jogo", SELECTED=new Set();
 let GEO=null; // geometria atual (para tooltip)
 const PX_POR_X=58, SVGNS="http://www.w3.org/2000/svg";
 
@@ -263,11 +263,12 @@ function render(){
   function pathD(pts){let d="";pts.forEach((p,k)=>{ if(k===0)d=`M ${p.x} ${p.y}`;
     else{const pv=pts[k-1],mx=(pv.x+p.x)/2;d+=` C ${mx} ${pv.y} ${mx} ${p.y} ${p.x} ${p.y}`;}});return d;}
 
-  // ordem de desenho: não-selecionados primeiro, selecionado por cima
-  const ordered=[...series].sort((a,b)=> (a.nome===SELECTED?1:0)-(b.nome===SELECTED?1:0));
+  const hasSel=SELECTED.size>0, showTokens=SELECTED.size<=3;
+  // ordem de desenho: não-selecionados primeiro, selecionados por cima
+  const ordered=[...series].sort((a,b)=> (SELECTED.has(a.nome)?1:0)-(SELECTED.has(b.nome)?1:0));
 
   ordered.forEach(s=>{
-    const isSel=s.nome===SELECTED, dimmed=SELECTED&&!isSel;
+    const isSel=SELECTED.has(s.nome), dimmed=hasSel&&!isSel;
     const d=pathD(s.pts);
     // linha visível
     svg.appendChild(el("path",{d,fill:"none",
@@ -276,12 +277,14 @@ function render(){
     // marcadores
     if(!dimmed){
       s.pts.forEach(p=>{
-        if(isSel){
+        if(isSel && showTokens){
           svg.appendChild(el("circle",{cx:p.x,cy:p.y,r:11,fill:s.color}));
           const tk=el("text",{x:p.x,y:p.y+4,fill:"#04150D","font-family":"Oswald, sans-serif",
             "font-size":11,"font-weight":700,"text-anchor":"middle"});
           tk.textContent=p.rank; svg.appendChild(tk);
-        } else if(!SELECTED){
+        } else if(isSel){
+          svg.appendChild(el("circle",{cx:p.x,cy:p.y,r:4,fill:s.color}));
+        } else if(!hasSel){
           svg.appendChild(el("circle",{cx:p.x,cy:p.y,r:3,fill:s.color}));
         }
       });
@@ -289,7 +292,7 @@ function render(){
     // caminho de clique (transparente, grosso)
     const hit=el("path",{d,fill:"none",stroke:"transparent","stroke-width":18,cursor:"pointer"});
     hit.dataset.name=s.nome;
-    hit.addEventListener("click",()=>select(s.nome===SELECTED?null:s.nome));
+    hit.addEventListener("click",()=>toggle(s.nome));
     hit.addEventListener("mousemove",ev=>showTip(ev,s.nome));
     hit.addEventListener("mouseleave",hideTip);
     svg.appendChild(hit);
@@ -324,21 +327,24 @@ function showTip(ev,nome){
 function hideTip(){document.getElementById("tip").style.opacity=0;}
 
 // ===================== DESTAQUE / LEGENDA =====================
-function select(n){ SELECTED=n; render(); syncChips(); }
+function toggle(n){ if(SELECTED.has(n))SELECTED.delete(n); else SELECTED.add(n); render(); syncChips(); }
+function clearSel(){ SELECTED.clear(); render(); syncChips(); }
 function syncChips(){
+  const has=SELECTED.size>0;
   document.querySelectorAll(".chip").forEach(c=>{
     const n=c.dataset.name;
-    c.classList.toggle("active",n===SELECTED);
-    c.classList.toggle("faded",SELECTED&&n!==SELECTED);
+    c.classList.toggle("active",SELECTED.has(n));
+    c.classList.toggle("faded",has&&!SELECTED.has(n));
   });
 }
 function buildLegend(){
   const lg=document.getElementById("legend"); lg.innerHTML="";
-  PEOPLE.forEach(n=>{
+  const nomesOrdenados=[...PEOPLE].sort((a,b)=>a.localeCompare(b,'pt-BR'));
+  nomesOrdenados.forEach(n=>{
     const c=document.createElement("div");
     c.className="chip"; c.dataset.name=n;
     c.innerHTML=`<span class="dot" style="background:${COLORS[n]}"></span>${n}`;
-    c.onclick=()=>select(n===SELECTED?null:n);
+    c.onclick=()=>toggle(n);
     lg.appendChild(c);
   });
 }
@@ -357,7 +363,7 @@ document.getElementById("toggle").addEventListener("click",e=>{
   document.querySelectorAll("#toggle button").forEach(x=>x.classList.toggle("on",x===b));
   render();
 });
-document.getElementById("reset").addEventListener("click",()=>select(null));
+document.getElementById("reset").addEventListener("click",clearSel);
 document.getElementById("refresh").addEventListener("click",loadData);
 document.addEventListener("visibilitychange",()=>{ if(!document.hidden && CSV_URL) loadData(); });
 let rt; window.addEventListener("resize",()=>{clearTimeout(rt);rt=setTimeout(render,150);});
